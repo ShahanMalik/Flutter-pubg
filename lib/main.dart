@@ -23,6 +23,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: GestureDetector(
           onPanUpdate: (details) {
@@ -49,7 +50,10 @@ class MyApp extends StatelessWidget {
             // Access the game instance and call shootFireball
             MyGame.instance.shootFireball();
           },
-          child: Icon(Icons.fireplace), // You can use any icon you prefer
+          child: Text('🔥',
+              style: TextStyle(
+                fontSize: 34,
+              )), // You can use any icon you prefer
         ),
       ),
     );

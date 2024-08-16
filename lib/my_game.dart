@@ -1,9 +1,10 @@
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
-import 'package:flame/sprite.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_audio/flame_audio.dart';
+import 'package:rive/rive.dart';
 import 'package:vector_math/vector_math_64.dart' as vmath;
+import 'package:flame_rive/flame_rive.dart';
 
 class Fireball extends SpriteComponent {
   vmath.Vector2 velocity;
@@ -22,121 +23,43 @@ class Fireball extends SpriteComponent {
   }
 }
 
-class Enemy extends SpriteComponent {
-  static const double speed = 10;
-  int health = 3; // Initialize enemy health
-  late Timer shootTimer;
-  bool isDead = false; // Flag to mark if the enemy is dead
-
-  Enemy({
-    required Sprite sprite,
-    required vmath.Vector2 position,
-    required vmath.Vector2 size,
-  }) : super(sprite: sprite, position: position, size: size) {
-    shootTimer = Timer(2, repeat: true, onTick: shootAtPlayer);
-    shootTimer.start();
-  }
-
-  @override
-  void update(double dt) {
-    super.update(dt);
-    shootTimer.update(dt);
-
-    if (isDead) {
-      removeFromParent();
-      return;
-    }
-
-    if (MyGame.instance.player != null) {
-      vmath.Vector2 direction = MyGame.instance.player!.position - position;
-      if (direction.length2 > 0) {
-        direction = direction.normalized();
-      }
-      // Move the enemy towards the player
-      position += direction * speed * dt;
-
-      // Ensure the enemy stays within bounds
-      position.x =
-          MyGame.instance.clamp(position.x, 0, MyGame.instance.size.x - size.x);
-      position.y =
-          MyGame.instance.clamp(position.y, 0, MyGame.instance.size.y - size.y);
-    }
-  }
-
-  void shootAtPlayer() {
-    if (MyGame.instance.player != null) {
-      vmath.Vector2 direction = MyGame.instance.player!.position - position;
-      if (direction.length2 > 0) {
-        direction = direction.normalized();
-      }
-      final bullet = EnemyBullet(
-        sprite: MyGame.instance
-            .fireballSprite, // You can use a different sprite for enemy bullets
-        size: vmath.Vector2(5, 5), // Size of the bullet
-        position: position +
-            vmath.Vector2(
-                size.x / 2, size.y / 2), // Start from the enemy's position
-        velocity: direction * 200, // Speed of the bullet
-      );
-      MyGame.instance.add(bullet);
-    }
-  }
-
-  void takeDamage(int damage) {
-    FlameAudio.play('explosion.mp3');
-    health -= damage;
-    if (health <= 0) {
-      isDead = true;
-      removeFromParent(); // Remove enemy from the game
-    }
-  }
-}
-
-class EnemyBullet extends SpriteComponent {
-  vmath.Vector2 velocity;
-
-  EnemyBullet({
-    required Sprite sprite,
-    required vmath.Vector2 position,
-    required this.velocity,
-    required vmath.Vector2 size,
-  }) : super(sprite: sprite, position: position, size: size);
-
-  @override
-  void update(double dt) {
-    position += velocity * dt;
-    super.update(dt);
-
-    // Remove bullet if it goes off-screen
-    if (position.x < 0 ||
-        position.x > MyGame.instance.size.x ||
-        position.y < 0 ||
-        position.y > MyGame.instance.size.y) {
-      MyGame.instance.remove(this);
-    }
-  }
-}
-
 class MyGame extends FlameGame {
   static final MyGame instance = MyGame();
 
   late SpriteComponent player;
   late Sprite fireballSprite;
-  late Sprite backgroundSprite;
+  late Artboard backgroundArtboard;
+  late RiveComponent backgroundRiveComponent;
   late Sprite enemySprite;
   vmath.Vector2 playerDirection =
       vmath.Vector2(1, 0); // Default direction to the right
-  double playerSpeed = 20; // Adjust player speed as needed
+  double playerSpeed = 200; // Adjust player speed as needed
   List<Enemy> enemies = []; // List to hold multiple enemies
   late Timer respawnTimer;
 
   @override
   Future<void> onLoad() async {
-    backgroundSprite = await loadSprite('battleground.jpg');
-    add(SpriteComponent(
-      sprite: backgroundSprite,
+    // Load the Rive file
+    final backgroundRiveFile =
+        await RiveFile.asset('assets/images/game_battleground.riv');
+    backgroundArtboard = backgroundRiveFile.mainArtboard;
+
+    // Verify available animations
+    print(
+        'Available animations: ${backgroundArtboard.animations.map((a) => a.name).toList()}');
+
+    // Play the first animation on the artboard
+    final controller =
+        SimpleAnimation('Timeline 1'); // Use 'Timeline 1' or 'State Machine 1'
+    backgroundArtboard.addController(controller);
+
+    backgroundRiveComponent = RiveComponent(
+      artboard: backgroundArtboard,
       size: Vector2(size.x, size.y), // Fit the background to the game size
-    ));
+    );
+
+    // Add the background Rive component to the game
+    add(backgroundRiveComponent);
 
     // Load player sprite
     final playerSprite = await loadSprite('player.png');
@@ -155,10 +78,11 @@ class MyGame extends FlameGame {
     enemySprite = await loadSprite('enemy.png');
 
     // Set up respawn timer
-    respawnTimer = Timer(2, onTick: spawnEnemies, repeat: true);
+    // Set up respawn timer to run indefinitely
+    respawnTimer = Timer(1, onTick: spawnEnemies, repeat: true);
     respawnTimer.start();
 
-    // Spawn initial enemies
+    // Initial enemy spawn
     spawnEnemies();
   }
 
@@ -229,36 +153,120 @@ class MyGame extends FlameGame {
   }
 
   void spawnEnemies() {
-    // Clear existing enemies (if any)
-    enemies.clear();
-
-    // Spawn the first enemy
-    final enemy1 = Enemy(
+    // Spawn a new enemy
+    final enemy = Enemy(
       sprite: enemySprite,
       size: vmath.Vector2(64, 64),
       position: vmath.Vector2(
-          size.x - 100, size.y / 2 - 50), // Position of the first enemy
+          size.x - 100, size.y / 2 - 50), // Adjust the position if needed
     );
-    add(enemy1);
-    enemies.add(enemy1);
+    add(enemy);
+    enemies.add(enemy);
 
-    // Spawn the second enemy below the first one
-    final enemy2 = Enemy(
-      sprite: enemySprite,
-      size: vmath.Vector2(64, 64),
-      position: vmath.Vector2(
-          size.x - 100, size.y / 2 + 50), // Position of the second enemy
-    );
-    add(enemy2);
-    enemies.add(enemy2);
-
-    // Stop the respawn timer to prevent continuous spawning
-    respawnTimer.stop();
+    // Adjust the position for subsequent enemies
+    if (enemies.length % 2 == 0) {
+      enemy.position.y += 100; // Position below the previous one
+    }
   }
 
   double clamp(double value, double min, double max) {
     if (value < min) return min;
     if (value > max) return max;
     return value;
+  }
+}
+
+class Enemy extends SpriteComponent {
+  static const double speed = 10;
+  int health = 2; // Initialize enemy health
+  late Timer shootTimer;
+  bool isDead = false; // Flag to mark if the enemy is dead
+
+  Enemy({
+    required Sprite sprite,
+    required vmath.Vector2 position,
+    required vmath.Vector2 size,
+  }) : super(sprite: sprite, position: position, size: size) {
+    shootTimer = Timer(2, repeat: true, onTick: shootAtPlayer);
+    shootTimer.start();
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    shootTimer.update(dt);
+
+    if (isDead) {
+      removeFromParent();
+      return;
+    }
+
+    if (MyGame.instance.player != null) {
+      vmath.Vector2 direction = MyGame.instance.player!.position - position;
+      if (direction.length2 > 0) {
+        direction = direction.normalized();
+      }
+      // Move the enemy towards the player
+      position += direction * speed * dt;
+
+      // Ensure the enemy stays within bounds
+      position.x =
+          MyGame.instance.clamp(position.x, 0, MyGame.instance.size.x - size.x);
+      position.y =
+          MyGame.instance.clamp(position.y, 0, MyGame.instance.size.y - size.y);
+    }
+  }
+
+  void shootAtPlayer() {
+    if (MyGame.instance.player != null) {
+      vmath.Vector2 direction = MyGame.instance.player!.position - position;
+      if (direction.length2 > 0) {
+        direction = direction.normalized();
+      }
+      final bullet = EnemyBullet(
+        sprite: MyGame.instance
+            .fireballSprite, // You can use a different sprite for enemy bullets
+        size: vmath.Vector2(5, 5), // Size of the bullet
+        position: position +
+            vmath.Vector2(
+                size.x / 9, size.y / 6), // Start from the enemy's position
+        velocity: direction * 200, // Speed of the bullet
+      );
+      MyGame.instance.add(bullet);
+    }
+  }
+
+  void takeDamage(int damage) {
+    FlameAudio.play('explosion.mp3');
+    health -= damage;
+    if (health <= 0) {
+      isDead = true;
+      removeFromParent(); // Remove enemy from the game
+    }
+  }
+}
+
+class EnemyBullet extends SpriteComponent {
+  vmath.Vector2 velocity;
+
+  EnemyBullet({
+    required Sprite sprite,
+    required vmath.Vector2 position,
+    required this.velocity,
+    required vmath.Vector2 size,
+  }) : super(sprite: sprite, position: position, size: size);
+
+  @override
+  void update(double dt) {
+    position += velocity * dt;
+    super.update(dt);
+
+    // Remove bullet if it goes off-screen
+    if (position.x < 0 ||
+        position.x > MyGame.instance.size.x ||
+        position.y < 0 ||
+        position.y > MyGame.instance.size.y) {
+      removeFromParent();
+    }
   }
 }
